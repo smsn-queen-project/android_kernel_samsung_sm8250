@@ -41,10 +41,6 @@
 #include <linux/uaccess.h>
 #include <linux/build_bug.h>
 
-#ifdef CONFIG_FSCRYPT_SDP
-#include <linux/fscrypto_sdp_name.h>
-#endif
-
 #include "internal.h"
 #include "mount.h"
 
@@ -469,7 +465,7 @@ int inode_permission2(struct vfsmount *mnt, struct inode *inode, int mask)
 	retval = security_inode_permission(inode, mask);
 	return retval;
 }
-EXPORT_SYMBOL(inode_permission2);
+EXPORT_SYMBOL_GPL(inode_permission2);
 
 int inode_permission(struct inode *inode, int mask)
 {
@@ -1220,21 +1216,13 @@ int follow_up(struct path *path)
 		read_sequnlock_excl(&mount_lock);
 		return 0;
 	}
-#ifdef CONFIG_KDP_NS
-	mntget(parent->mnt);
-#else
 	mntget(&parent->mnt);
-#endif
 	mountpoint = dget(mnt->mnt_mountpoint);
 	read_sequnlock_excl(&mount_lock);
 	dput(path->dentry);
 	path->dentry = mountpoint;
 	mntput(path->mnt);
-#ifdef CONFIG_KDP_NS
-	path->mnt = parent->mnt;
-#else
 	path->mnt = &parent->mnt;
-#endif
 	return 1;
 }
 EXPORT_SYMBOL(follow_up);
@@ -1440,13 +1428,8 @@ static bool __follow_mount_rcu(struct nameidata *nd, struct path *path,
 		mounted = __lookup_mnt(path->mnt, path->dentry);
 		if (!mounted)
 			break;
-#ifdef CONFIG_KDP_NS
-		path->mnt = mounted->mnt;
-		path->dentry = mounted->mnt->mnt_root;
-#else
 		path->mnt = &mounted->mnt;
 		path->dentry = mounted->mnt.mnt_root;
-#endif
 		nd->flags |= LOOKUP_JUMPED;
 		*seqp = read_seqcount_begin(&path->dentry->d_seq);
 		/*
@@ -1489,19 +1472,11 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 			unsigned seq = read_seqcount_begin(&mountpoint->d_seq);
 			if (unlikely(read_seqretry(&mount_lock, nd->m_seq)))
 				return -ECHILD;
-#ifdef CONFIG_KDP_NS
-			if (mparent->mnt == nd->path.mnt)
-#else
 			if (&mparent->mnt == nd->path.mnt)
-#endif
 				break;
 			/* we know that mountpoint was pinned */
 			nd->path.dentry = mountpoint;
-#ifdef CONFIG_KDP_NS
-			nd->path.mnt = mparent->mnt;
-#else
 			nd->path.mnt = &mparent->mnt;
-#endif
 			inode = inode2;
 			nd->seq = seq;
 		}
@@ -1513,13 +1488,8 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 			return -ECHILD;
 		if (!mounted)
 			break;
-#ifdef CONFIG_KDP_NS
-		nd->path.mnt = mounted->mnt;
-		nd->path.dentry = mounted->mnt->mnt_root;
-#else
 		nd->path.mnt = &mounted->mnt;
 		nd->path.dentry = mounted->mnt.mnt_root;
-#endif
 		inode = nd->path.dentry->d_inode;
 		nd->seq = read_seqcount_begin(&nd->path.dentry->d_seq);
 	}
@@ -2667,7 +2637,7 @@ struct dentry *lookup_one_len2(const char *name, struct vfsmount *mnt, struct de
 	dentry = lookup_dcache(&this, base, 0);
 	return dentry ? dentry : __lookup_slow(&this, base, 0);
 }
-EXPORT_SYMBOL(lookup_one_len2);
+EXPORT_SYMBOL_GPL(lookup_one_len2);
 
 struct dentry *lookup_one_len(const char *name, struct dentry *base, int len)
 {
@@ -2705,6 +2675,26 @@ struct dentry *lookup_one_len_unlocked(const char *name,
 }
 EXPORT_SYMBOL(lookup_one_len_unlocked);
 
+/*
+ * Like lookup_one_len_unlocked(), except that it yields ERR_PTR(-ENOENT)
+ * on negatives.  Returns known positive or ERR_PTR(); that's what
+ * most of the users want.  Note that pinned negative with unlocked parent
+ * _can_ become positive at any time, so callers of lookup_one_len_unlocked()
+ * need to be very careful; pinned positives have ->d_inode stable, so
+ * this one avoids such problems.
+ */
+struct dentry *lookup_positive_unlocked(const char *name,
+				       struct dentry *base, int len)
+{
+	struct dentry *ret = lookup_one_len_unlocked(name, base, len);
+	if (!IS_ERR(ret) && d_is_negative(ret)) {
+		dput(ret);
+		ret = ERR_PTR(-ENOENT);
+	}
+	return ret;
+}
+EXPORT_SYMBOL(lookup_positive_unlocked);
+
 #ifdef CONFIG_UNIX98_PTYS
 int path_pts(struct path *path)
 {
@@ -2723,7 +2713,7 @@ int path_pts(struct path *path)
 	this.name = "pts";
 	this.len = 3;
 	child = d_hash_and_lookup(parent, &this);
-	if (!child)
+	if (IS_ERR_OR_NULL(child))
 		return -ENOENT;
 
 	path->dentry = child;
@@ -3045,7 +3035,7 @@ int vfs_create2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry,
 		fsnotify_create(dir, dentry);
 	return error;
 }
-EXPORT_SYMBOL(vfs_create2);
+EXPORT_SYMBOL_GPL(vfs_create2);
 
 int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		bool want_excl)
@@ -3073,7 +3063,7 @@ int vfs_mkobj2(struct vfsmount *mnt, struct dentry *dentry, umode_t mode,
 		fsnotify_create(dir, dentry);
 	return error;
 }
-EXPORT_SYMBOL(vfs_mkobj2);
+EXPORT_SYMBOL_GPL(vfs_mkobj2);
 
 
 int vfs_mkobj(struct dentry *dentry, umode_t mode,
@@ -3601,6 +3591,8 @@ struct dentry *vfs_tmpfile(struct dentry *dentry, umode_t mode, int open_flag)
 	child = d_alloc(dentry, &slash_name);
 	if (unlikely(!child))
 		goto out_err;
+	if (!IS_POSIXACL(dir))
+		mode &= ~current_umask();
 	error = dir->i_op->tmpfile(dir, child, mode);
 	if (error)
 		goto out_err;
@@ -3871,7 +3863,7 @@ int vfs_mknod2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry, u
 		fsnotify_create(dir, dentry);
 	return error;
 }
-EXPORT_SYMBOL(vfs_mknod2);
+EXPORT_SYMBOL_GPL(vfs_mknod2);
 
 int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
 {
@@ -3975,7 +3967,7 @@ int vfs_mkdir2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry, u
 		fsnotify_mkdir(dir, dentry);
 	return error;
 }
-EXPORT_SYMBOL(vfs_mkdir2);
+EXPORT_SYMBOL_GPL(vfs_mkdir2);
 
 int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
@@ -4039,12 +4031,6 @@ int vfs_rmdir2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry)
 	if (error)
 		goto out;
 
-#ifdef CONFIG_FSCRYPT_SDP
-	error = fscrypt_sdp_check_rmdir(dentry);
-	if (error == -EIO)
-		goto out;
-#endif
-
 	error = dir->i_op->rmdir(dir, dentry);
 	if (error)
 		goto out;
@@ -4061,7 +4047,7 @@ out:
 		d_delete(dentry);
 	return error;
 }
-EXPORT_SYMBOL(vfs_rmdir2);
+EXPORT_SYMBOL_GPL(vfs_rmdir2);
 
 int vfs_rmdir(struct inode *dir, struct dentry *dentry)
 {
@@ -4193,7 +4179,7 @@ out:
 
 	return error;
 }
-EXPORT_SYMBOL(vfs_unlink2);
+EXPORT_SYMBOL_GPL(vfs_unlink2);
 
 int vfs_unlink(struct inode *dir, struct dentry *dentry, struct inode **delegated_inode)
 {
@@ -4317,7 +4303,7 @@ int vfs_symlink2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry,
 		fsnotify_create(dir, dentry);
 	return error;
 }
-EXPORT_SYMBOL(vfs_symlink2);
+EXPORT_SYMBOL_GPL(vfs_symlink2);
 
 int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)
 {
@@ -4445,7 +4431,7 @@ int vfs_link2(struct vfsmount *mnt, struct dentry *old_dentry, struct inode *dir
 		fsnotify_link(dir, inode, new_dentry);
 	return error;
 }
-EXPORT_SYMBOL(vfs_link2);
+EXPORT_SYMBOL_GPL(vfs_link2);
 
 int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_dentry, struct inode **delegated_inode)
 {
@@ -4675,19 +4661,10 @@ int vfs_rename2(struct vfsmount *mnt,
 		if (error)
 			goto out;
 	}
-#ifdef CONFIG_FSCRYPT_SDP
-	error = fscrypt_sdp_check_rename_pre(old_dentry);
-	if (error == -EIO)
-		goto out;
-#endif
 	error = old_dir->i_op->rename(old_dir, old_dentry,
 				       new_dir, new_dentry, flags);
 	if (error)
 		goto out;
-#ifdef CONFIG_FSCRYPT_SDP
-	fscrypt_sdp_check_rename_post(old_dir, old_dentry,
-						new_dir, new_dentry);
-#endif
 
 	if (!(flags & RENAME_EXCHANGE) && target) {
 		if (is_dir) {
@@ -4721,7 +4698,7 @@ out:
 
 	return error;
 }
-EXPORT_SYMBOL(vfs_rename2);
+EXPORT_SYMBOL_GPL(vfs_rename2);
 
 int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	       struct inode *new_dir, struct dentry *new_dentry,
@@ -5040,7 +5017,7 @@ int __page_symlink(struct inode *inode, const char *symname, int len, int nofs)
 {
 	struct address_space *mapping = inode->i_mapping;
 	struct page *page;
-	void *fsdata;
+	void *fsdata = NULL;
 	int err;
 	unsigned int flags = 0;
 	if (nofs)

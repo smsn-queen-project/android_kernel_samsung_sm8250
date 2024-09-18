@@ -20,7 +20,7 @@
 #include <net/netns/ipv4.h>
 #include <net/netns/ipv6.h>
 #ifdef CONFIG_MPTCP
-	#include <net/netns/mptcp.h>
+#include <net/netns/mptcp.h>
 #endif
 #include <net/netns/ieee802154_6lowpan.h>
 #include <net/netns/sctp.h>
@@ -179,6 +179,8 @@ struct net *copy_net_ns(unsigned long flags, struct user_namespace *user_ns,
 void net_ns_get_ownership(const struct net *net, kuid_t *uid, kgid_t *gid);
 
 void net_ns_barrier(void);
+
+struct ns_common *get_net_ns(struct ns_common *ns);
 #else /* CONFIG_NET_NS */
 #include <linux/sched.h>
 #include <linux/nsproxy.h>
@@ -198,6 +200,11 @@ static inline void net_ns_get_ownership(const struct net *net,
 }
 
 static inline void net_ns_barrier(void) {}
+
+static inline struct ns_common *get_net_ns(struct ns_common *ns)
+{
+	return ERR_PTR(-EINVAL);
+}
 #endif /* CONFIG_NET_NS */
 
 

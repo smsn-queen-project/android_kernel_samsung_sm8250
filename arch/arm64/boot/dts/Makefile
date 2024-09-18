@@ -1,4 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0
+dtstree		:= $(srctree)/$(src)
+
+vendor := $(dtstree)/vendor
+ifeq "$(wildcard $(vendor)/Makefile)" ""
 subdir-y += actions
 subdir-y += al
 subdir-y += allwinner
@@ -16,7 +20,7 @@ subdir-y += lg
 subdir-y += marvell
 subdir-y += mediatek
 subdir-y += nvidia
-# subdir-y += qcom
+subdir-y += qcom
 subdir-y += realtek
 subdir-y += renesas
 subdir-y += rockchip
@@ -26,15 +30,11 @@ subdir-y += synaptics
 subdir-y += ti
 subdir-y += xilinx
 subdir-y += zte
-subdir-y += samsung
 
 
-dtstree		:= $(srctree)/$(src)
-
-#vendor := $(dtstree)/vendor
-#ifneq "$(wildcard $(vendor)/Makefile)" ""
-#        subdir-y += vendor
-#endif
+else
+        subdir-y += vendor
+endif
 
 dtb-$(CONFIG_OF_ALL_DTBS) := $(patsubst $(dtstree)/%.dts,%.dtb, $(foreach d,$(subdir), $(wildcard $(dtstree)/$(d)/*.dts)))
 

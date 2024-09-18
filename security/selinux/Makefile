@@ -18,31 +18,15 @@ selinux-$(CONFIG_SECURITY_INFINIBAND) += ibpkey.o
 
 ccflags-y := -I$(srctree)/security/selinux -I$(srctree)/security/selinux/include
 
-# [ SEC_SELINUX_PORTING_COMMON
-ifeq ($(TARGET_BUILD_VARIANT), eng)
-ifeq ($(SEC_BUILD_OPTION_PRODUCT_SHIP), false)
-ifeq ($(SEC_BUILD_OPTION_SELINUX_ENFORCE),true)
-ccflags-y += -DSEC_SELINUX_DEBUG
-endif
-endif
-endif
-
-ifeq ($(SEC_BUILD_OPTION_VTS),false)
-ifeq ($(TARGET_BUILD_VARIANT), user)
-ifeq ($(SEC_BUILD_OPTION_PRODUCT_SHIP), true)
-ifeq ($(SEC_BUILD_OPTION_SELINUX_ENFORCE),true)
-ccflags-y += -DCONFIG_ALWAYS_ENFORCE=true
-endif
-endif
-endif
-endif
-# ] SEC_SELINUX_PORTING_COMMON
-
 $(addprefix $(obj)/,$(selinux-y)): $(obj)/flask.h
 
 quiet_cmd_flask = GEN     $(obj)/flask.h $(obj)/av_permissions.h
-      cmd_flask = scripts/selinux/genheaders/genheaders $(obj)/flask.h $(obj)/av_permissions.h
+      cmd_flask = $< $(obj)/flask.h $(obj)/av_permissions.h
 
 targets += flask.h av_permissions.h
-$(obj)/flask.h: $(src)/include/classmap.h FORCE
+# once make >= 4.3 is required, we can use grouped targets in the rule below,
+# which basically involves adding both headers and a '&' before the colon, see
+# the example below:
+#   $(obj)/flask.h $(obj)/av_permissions.h &: scripts/selinux/...
+$(obj)/flask.h: scripts/selinux/genheaders/genheaders FORCE
 	$(call if_changed,flask)

@@ -2,6 +2,10 @@
 # RMNET MAP driver
 #
 
+config RMNET_ARGOS
+	bool "RmNet Argos extension"
+	default n
+
 menuconfig RMNET
 	tristate "RmNet MAP driver"
 	default n
@@ -11,13 +15,3 @@ menuconfig RMNET
 	  for handling data in the multiplexing and aggregation protocol (MAP)
 	  format in the embedded data path. RMNET devices can be attached to
 	  any IP mode physical device.
-
-menuconfig RMNET_ARGOS
-	tristate "RmNet Argos extension"
-	default n
-	depends on RMNET
-	---help---
-	  argos for rmnet driver
-
-source "drivers/net/ethernet/qualcomm/rmnet/shs/Kconfig"
-source "drivers/net/ethernet/qualcomm/rmnet/perf/Kconfig"

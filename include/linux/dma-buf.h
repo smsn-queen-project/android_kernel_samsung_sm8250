@@ -357,6 +357,21 @@ struct dma_buf_ops {
 	void (*vunmap)(struct dma_buf *, void *vaddr);
 
 	/**
+	 * @get_uuid
+	 *
+	 * This is called by dma_buf_get_uuid to get the UUID which identifies
+	 * the buffer to virtio devices.
+	 *
+	 * This callback is optional.
+	 *
+	 * Returns:
+	 *
+	 * 0 on success or a negative error code on failure. On success uuid
+	 * will be populated with the buffer's UUID.
+	 */
+	int (*get_uuid)(struct dma_buf *dmabuf, uuid_t *uuid);
+
+	/**
 	 * @get_flags:
 	 *
 	 * This is called by dma_buf_get_flags and is used to get the buffer's
@@ -395,9 +410,9 @@ typedef int (*dma_buf_destructor)(struct dma_buf *dmabuf, void *dtor_data);
  * @vmap_ptr: the current vmap ptr if vmapping_counter > 0
  * @exp_name: name of the exporter; useful for debugging.
  * @buf_name: unique name for the buffer
- * @ktime: time (in jiffies) at which the buffer was born
  * @name: userspace-provided name; useful for accounting and debugging.
  * @name_lock: lock to protect name.
+ * @ktime: time (in jiffies) at which the buffer was born
  * @owner: pointer to exporter module; used for refcounting when exporter is a
  *         kernel module.
  * @list_node: node for dma_buf accounting and debugging.
@@ -426,9 +441,11 @@ struct dma_buf {
 	void *vmap_ptr;
 	const char *exp_name;
 	char *buf_name;
-	ktime_t ktime;
 	const char *name;
 	spinlock_t name_lock;
+#if defined(CONFIG_DEBUG_FS)
+	ktime_t ktime;
+#endif
 	struct module *owner;
 	struct list_head list_node;
 	void *priv;
@@ -559,6 +576,7 @@ int dma_buf_mmap(struct dma_buf *, struct vm_area_struct *,
 void *dma_buf_vmap(struct dma_buf *);
 void dma_buf_vunmap(struct dma_buf *, void *vaddr);
 int dma_buf_get_flags(struct dma_buf *dma_buf, unsigned long *flags);
+int dma_buf_get_uuid(struct dma_buf *dma_buf, uuid_t *uuid);
 
 /**
  * dma_buf_set_destructor - set the dma-buf's destructor
@@ -573,4 +591,5 @@ static inline void dma_buf_set_destructor(struct dma_buf *dmabuf,
 	dmabuf->dtor = dtor;
 	dmabuf->dtor_data = dtor_data;
 }
+
 #endif /* __DMA_BUF_H__ */

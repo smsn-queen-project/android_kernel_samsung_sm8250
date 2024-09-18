@@ -40,14 +40,6 @@
 #include <linux/psi.h>
 #include "internal.h"
 
-#ifdef CONFIG_SDP
-#include <sdp/cache_cleanup.h>
-#endif
-
-#ifdef CONFIG_FSCRYPT_SDP
-#include <linux/fscrypto_sdp_cache.h>
-#endif
-
 #ifdef CONFIG_PAGE_BOOST_RECORDING
 #include <linux/io_record.h>
 #endif
@@ -277,11 +269,6 @@ static void unaccount_page_cache_page(struct address_space *mapping,
 void __delete_from_page_cache(struct page *page, void *shadow)
 {
 	struct address_space *mapping = page->mapping;
-
-#ifdef CONFIG_SDP
-	if (mapping_sensitive(mapping))
-		sdp_page_cleanup(page);
-#endif
 
 	trace_mm_filemap_delete_from_page_cache(page);
 
@@ -1136,7 +1123,7 @@ enum behavior {
 			 */
 };
 
-static inline int wait_on_page_bit_common(wait_queue_head_t *q,
+static inline __sched int wait_on_page_bit_common(wait_queue_head_t *q,
 	struct page *page, int bit_nr, int state, enum behavior behavior)
 {
 	struct wait_page_queue wait_page;
@@ -1226,14 +1213,14 @@ static inline int wait_on_page_bit_common(wait_queue_head_t *q,
 	return ret;
 }
 
-void wait_on_page_bit(struct page *page, int bit_nr)
+void __sched wait_on_page_bit(struct page *page, int bit_nr)
 {
 	wait_queue_head_t *q = page_waitqueue(page);
 	wait_on_page_bit_common(q, page, bit_nr, TASK_UNINTERRUPTIBLE, SHARED);
 }
 EXPORT_SYMBOL(wait_on_page_bit);
 
-int wait_on_page_bit_killable(struct page *page, int bit_nr)
+int __sched wait_on_page_bit_killable(struct page *page, int bit_nr)
 {
 	wait_queue_head_t *q = page_waitqueue(page);
 	return wait_on_page_bit_common(q, page, bit_nr, TASK_KILLABLE, SHARED);
@@ -1384,7 +1371,7 @@ EXPORT_SYMBOL_GPL(page_endio);
  * __lock_page - get a lock on the page, assuming we need to sleep to get it
  * @__page: the page to lock
  */
-void __lock_page(struct page *__page)
+void __sched __lock_page(struct page *__page)
 {
 	struct page *page = compound_head(__page);
 	wait_queue_head_t *q = page_waitqueue(page);
@@ -1393,7 +1380,7 @@ void __lock_page(struct page *__page)
 }
 EXPORT_SYMBOL(__lock_page);
 
-int __lock_page_killable(struct page *__page)
+int __sched __lock_page_killable(struct page *__page)
 {
 	struct page *page = compound_head(__page);
 	wait_queue_head_t *q = page_waitqueue(page);
@@ -1413,7 +1400,7 @@ EXPORT_SYMBOL_GPL(__lock_page_killable);
  * If neither ALLOW_RETRY nor KILLABLE are set, will always return 1
  * with the page locked and the mmap_sem unperturbed.
  */
-int __lock_page_or_retry(struct page *page, struct mm_struct *mm,
+int __sched __lock_page_or_retry(struct page *page, struct mm_struct *mm,
 			 unsigned int flags)
 {
 	if (flags & FAULT_FLAG_ALLOW_RETRY) {
@@ -2492,18 +2479,7 @@ generic_file_read_iter(struct kiocb *iocb, struct iov_iter *iter)
 			goto out;
 	}
 
-#ifdef CONFIG_FSCRYPT_SDP
-	//Check after writeback is completed.
-	if (fscrypt_sdp_file_not_readable(iocb->ki_filp)) {
-		retval = -EIO;
-		goto out;
-	}
-#endif
-
 	retval = generic_file_buffered_read(iocb, iter, retval);
-#ifdef CONFIG_FSCRYPT_SDP
-	fscrypt_sdp_unset_file_io_ongoing(iocb->ki_filp);
-#endif
 out:
 	return retval;
 }
@@ -2680,7 +2656,7 @@ static struct file *do_async_mmap_readahead(struct vm_fault *vmf,
 	pgoff_t offset = vmf->pgoff;
 
 	/* If we don't want any read-ahead, don't bother */
-	if (vmf->vma_flags & VM_RAND_READ)
+	if (vmf->vma_flags & VM_RAND_READ || !ra->ra_pages)
 		return fpin;
 	if (ra->mmap_miss > 0)
 		ra->mmap_miss--;
@@ -2705,7 +2681,9 @@ static struct file *do_async_mmap_readahead(struct vm_fault *vmf,
  * it in the page cache, and handles the special cases reasonably without
  * having a lot of duplicated code.
  *
- * vma->vm_mm->mmap_sem must be held on entry (except FAULT_FLAG_SPECULATIVE).
+ * If FAULT_FLAG_SPECULATIVE is set, this function runs with elevated vma
+ * refcount and with mmap lock not held.
+ * Otherwise, vma->vm_mm->mmap_sem must be held on entry.
  *
  * If our return value has VM_FAULT_RETRY set, it's because
  * lock_page_or_retry() returned 0.
@@ -2729,6 +2707,52 @@ vm_fault_t filemap_fault(struct vm_fault *vmf)
 	pgoff_t max_off;
 	struct page *page;
 	vm_fault_t ret = 0;
+
+	if (vmf->flags & FAULT_FLAG_SPECULATIVE) {
+		page = find_get_page(mapping, offset);
+		if (unlikely(!page))
+			return VM_FAULT_RETRY;
+
+		if (unlikely(PageReadahead(page)))
+			goto page_put;
+
+		if (!trylock_page(page))
+			goto page_put;
+
+		if (unlikely(compound_head(page)->mapping != mapping))
+			goto page_unlock;
+		VM_BUG_ON_PAGE(page_to_pgoff(page) != offset, page);
+		if (unlikely(!PageUptodate(page)))
+			goto page_unlock;
+
+		max_off = DIV_ROUND_UP(i_size_read(inode), PAGE_SIZE);
+		if (unlikely(offset >= max_off))
+			goto page_unlock;
+
+		/*
+		 * Update readahead mmap_miss statistic.
+		 *
+		 * Note that we are not sure if finish_fault() will
+		 * manage to complete the transaction. If it fails,
+		 * we'll come back to filemap_fault() non-speculative
+		 * case which will update mmap_miss a second time.
+		 * This is not ideal, we would prefer to guarantee the
+		 * update will happen exactly once.
+		 */
+		if (!(vmf->vma->vm_flags & VM_RAND_READ) && ra->ra_pages) {
+			unsigned int mmap_miss = READ_ONCE(ra->mmap_miss);
+			if (mmap_miss)
+				WRITE_ONCE(ra->mmap_miss, --mmap_miss);
+		}
+
+		vmf->page = page;
+		return VM_FAULT_LOCKED;
+page_unlock:
+		unlock_page(page);
+page_put:
+		put_page(page);
+		return VM_FAULT_RETRY;
+	}
 
 	max_off = DIV_ROUND_UP(i_size_read(inode), PAGE_SIZE);
 	if (unlikely(offset >= max_off))
@@ -3118,6 +3142,14 @@ filler:
 		unlock_page(page);
 		goto out;
 	}
+
+	/*
+	 * A previous I/O error may have been due to temporary
+	 * failures.
+	 * Clear page error before actual read, PG_error will be
+	 * set again if read page fails.
+	 */
+	ClearPageError(page);
 	goto filler;
 
 out:
@@ -3362,7 +3394,7 @@ ssize_t generic_perform_write(struct file *file,
 		unsigned long offset;	/* Offset into pagecache page */
 		unsigned long bytes;	/* Bytes to write to page */
 		size_t copied;		/* Bytes copied from user */
-		void *fsdata;
+		void *fsdata = NULL;
 
 		offset = (pos & (PAGE_SIZE - 1));
 		bytes = min_t(unsigned long, PAGE_SIZE - offset,

@@ -148,6 +148,7 @@ config HID_APPLEIR
 
 config HID_ASUS
 	tristate "Asus"
+	depends on USB_HID
 	depends on LEDS_CLASS
 	---help---
 	Support for Asus notebook built-in keyboard and touchpad via i2c, and
@@ -800,7 +801,7 @@ config HID_PLANTRONICS
 config HID_PLAYSTATION
 	tristate "PlayStation HID Driver"
 	depends on HID
-    select CRC32
+	select CRC32
 	select POWER_SUPPLY
 	help
 	  Provides support for Sony PS5 controllers including support for

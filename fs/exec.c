@@ -62,7 +62,6 @@
 #include <linux/oom.h>
 #include <linux/compat.h>
 #include <linux/vmalloc.h>
-#include <linux/task_integrity.h>
 
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>
@@ -70,36 +69,8 @@
 
 #include <trace/events/task.h>
 #include "internal.h"
-#ifdef CONFIG_KDP_NS
-#include "mount.h"
-#endif
 
 #include <trace/events/sched.h>
-
-#ifdef CONFIG_SECURITY_DEFEX
-#include <linux/defex.h>
-#endif
-
-#ifdef CONFIG_KDP_CRED
-#define rkp_is_nonroot(x) ((x->cred->type)>>1 & 1)
-#ifdef CONFIG_LOD_SEC
-#define rkp_is_lod(x) ((x->cred->type)>>3 & 1)
-#endif
-static unsigned int __is_kdp_recovery __kdp_ro;
-
-static int __init boot_recovery(char *str)
-{
-	int temp = 0;
-
-	if (get_option(&str, &temp)) {
-		__is_kdp_recovery = temp;
-		return 0;
-	}
-
-	return -EINVAL;
-}
-early_param("androidboot.boot_recovery", boot_recovery);
-#endif
 
 int suid_dumpable = 0;
 
@@ -852,6 +823,7 @@ int transfer_args_to_stack(struct linux_binprm *bprm,
 			goto out;
 	}
 
+	bprm->exec += *sp_location - MAX_ARG_PAGES * PAGE_SIZE;
 	*sp_location = sp;
 
 out:
@@ -1013,7 +985,7 @@ int kernel_read_file_from_fd(int fd, void **buf, loff_t *size, loff_t max_size,
 	struct fd f = fdget(fd);
 	int ret = -EBADF;
 
-	if (!f.file)
+	if (!f.file || !(f.file->f_mode & FMODE_READ))
 		goto out;
 
 	ret = kernel_read_file(f.file, buf, size, max_size, id);
@@ -1040,7 +1012,7 @@ static int exec_mmap(struct mm_struct *mm)
 	/* Notify parent that we're no longer interested in the old VM */
 	tsk = current;
 	old_mm = current->mm;
-	mm_release(tsk, old_mm);
+	exec_mm_release(tsk, old_mm);
 
 	if (old_mm) {
 		sync_mm_rss(old_mm);
@@ -1057,16 +1029,25 @@ static int exec_mmap(struct mm_struct *mm)
 		}
 	}
 	task_lock(tsk);
+
+	local_irq_disable();
 	active_mm = tsk->active_mm;
-	tsk->mm = mm;
 	tsk->active_mm = mm;
+	tsk->mm = mm;
+	/*
+	 * This prevents preemption while active_mm is being loaded and
+	 * it and mm are being updated, which could cause problems for
+	 * lazy tlb mm refcounting when these are updated by context
+	 * switches. Not all architectures can handle irqs off over
+	 * activate_mm yet.
+	 */
+	if (!IS_ENABLED(CONFIG_ARCH_WANT_IRQS_OFF_ACTIVATE_MM))
+		local_irq_enable();
 	activate_mm(active_mm, mm);
+	if (IS_ENABLED(CONFIG_ARCH_WANT_IRQS_OFF_ACTIVATE_MM))
+		local_irq_enable();
 	tsk->mm->vmacache_seqnum = 0;
 	vmacache_flush(tsk);
-#ifdef CONFIG_KDP_CRED
-	if(rkp_cred_enable)
-		uh_call(UH_APP_RKP, RKP_KDP_X43, (u64)current_cred(), (u64)mm->pgd, 0, 0);
-#endif 
 	task_unlock(tsk);
 	if (old_mm) {
 		up_read(&old_mm->mmap_sem);
@@ -1276,118 +1257,6 @@ void __set_task_comm(struct task_struct *tsk, const char *buf, bool exec)
 	task_unlock(tsk);
 	perf_event_comm(tsk, exec);
 }
-#if 0
-#ifdef CONFIG_KDP_NS
-/* pointer to superblock */
-extern struct super_block *sys_sb;
-extern struct super_block *odm_sb;
-extern struct super_block *vendor_sb;
-extern struct super_block *rootfs_sb;
-extern struct super_block *crypt_sb;
-extern struct super_block *art_sb;
-extern struct super_block *dex2oat_sb;
-extern struct super_block *adbd_sb;
-extern int __check_verifiedboot;
-
-static int kdp_check_sb_mismatch(struct super_block *sb) 
-{	
-	if(__is_kdp_recovery || __check_verifiedboot) {
-		return 0;
-	}
-
-	if((sb != rootfs_sb) && (sb != sys_sb) && (sb != odm_sb)
-		&& (sb != vendor_sb) && (sb != crypt_sb) && (sb != art_sb) 
-		&& (sb != dex2oat_sb) && (sb != adbd_sb)) {
-		return 1;
-	}
-	return 0;
-}
-
-static int kdp_check_path_mismatch(struct vfsmount *vfsmnt)
-{
-	int i = 0;
-	int ret = -1;
-	char *buf = NULL;
-	char *path_name = NULL;
-	const char* skip_path[] = {
-		"/com.android.runtime",
-		"/com.android.conscrypt",
-		"/com.android.art",
-		"/com.android.adbd",
-		"/com.android.sdkext",
-	};
-
-	if (!vfsmnt->bp_mount) {
-		printk(KERN_ERR "vfsmnt->bp_mount is NULL");
-		return -ENOMEM;
-	}
-
-	buf = kzalloc(PATH_MAX, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	path_name = dentry_path_raw(vfsmnt->bp_mount->mnt_mountpoint, buf, PATH_MAX);
-	if (IS_ERR(path_name))
-		goto out;
-
-	for (; i < ARRAY_SIZE(skip_path); ++i) {
-		if (!strncmp(path_name, skip_path[i], strlen(skip_path[i]))) {
-			ret = 0;
-			break;
-		}
-	}
-out:
-	kfree(buf);
-
-	return ret;
-}
-
-static int invalid_drive(struct linux_binprm * bprm) 
-{
-	struct super_block *sb =  NULL;
-	struct vfsmount *vfsmnt = NULL;
-	
-	vfsmnt = bprm->file->f_path.mnt;
-	if(!vfsmnt || !rkp_ro_page((unsigned long)vfsmnt)) {
-		printk("\nInvalid Drive : %s, vfsmnt: 0x%lx\n",
-			bprm->filename, (long unsigned int)vfsmnt);
-		return 1;
-	}
-
-	if (!kdp_check_path_mismatch(vfsmnt)) {
-		return 0;
-	}
-
-	sb = vfsmnt->mnt_sb;
-
-	if(kdp_check_sb_mismatch(sb)) {
-		printk("\n Superblock Mismatch -> %s vfsmnt: 0x%lx, mnt_sb: 0x%lx\n \
-		Superblock list : rootfs_sb: 0x%lx, sys_sb: 0x%lx, odm_sb: 0x%lx, \
-		vendor_sb: 0x%lx, crypt_sb: 0x%lx, art_sb: 0x%lx, dex2oat_sb: 0x%lx, adbd_sb: 0x%lx\n",
-		bprm->filename, (long unsigned int)vfsmnt, (long unsigned int)sb,
-		(long unsigned int)rootfs_sb, 
-		(long unsigned int)sys_sb, (long unsigned int)odm_sb, 
-		(long unsigned int)vendor_sb, (long unsigned int)crypt_sb,
-		(long unsigned int)art_sb, (long unsigned int)dex2oat_sb, (long unsigned int)adbd_sb);
-		return 1;
-	}
-
-	return 0;
-}
-#define KDP_CRED_SYS_ID 1000
-
-static int is_kdp_priv_task(void)
-{
-	struct cred *cred = (struct cred *)current_cred();
-
-	if(cred->uid.val <= (uid_t)KDP_CRED_SYS_ID || cred->euid.val <= (uid_t)KDP_CRED_SYS_ID ||
-		cred->gid.val <= (gid_t)KDP_CRED_SYS_ID || cred->egid.val <= (gid_t)KDP_CRED_SYS_ID ){
-		return 1;
-	}
-	return 0;
-}
-#endif
-#endif
 
 /*
  * Calling this is the point of no return. None of the failures will be
@@ -1414,19 +1283,12 @@ int flush_old_exec(struct linux_binprm * bprm)
 	 */
 	set_mm_exe_file(bprm->mm, bprm->file);
 
+	would_dump(bprm, bprm->file);
+
 	/*
 	 * Release all of the old mmap stuff
 	 */
 	acct_arg_size(bprm, 0);
-#ifdef CONFIG_KDP_NS
-	/*
-	if(rkp_cred_enable &&
-		is_kdp_priv_task() && 
-		invalid_drive(bprm)) {
-		panic("\n KDP_NS: Illegal Execution of file #%s#\n", bprm->filename);
-	}
-	*/
-#endif 
 	retval = exec_mmap(bprm->mm);
 	if (retval)
 		goto out;
@@ -1532,7 +1394,7 @@ void setup_new_exec(struct linux_binprm * bprm)
 
 	/* An exec changes our domain. We are no longer part of the thread
 	   group */
-	current->self_exec_id++;
+	WRITE_ONCE(current->self_exec_id, current->self_exec_id + 1);
 	flush_signal_handlers(current, 0);
 }
 EXPORT_SYMBOL(setup_new_exec);
@@ -1825,8 +1687,7 @@ int search_binary_handler(struct linux_binprm *bprm)
 		if (printable(bprm->buf[0]) && printable(bprm->buf[1]) &&
 		    printable(bprm->buf[2]) && printable(bprm->buf[3]))
 			return retval;
-		if (request_module("binfmt-%04x",
-					*(ushort *)(bprm->buf + 2)) < 0)
+		if (request_module("binfmt-%04x", *(ushort *)(bprm->buf + 2)) < 0)
 			return retval;
 		need_retry = false;
 		goto retry;
@@ -1835,41 +1696,6 @@ int search_binary_handler(struct linux_binprm *bprm)
 	return retval;
 }
 EXPORT_SYMBOL(search_binary_handler);
-
-#ifdef CONFIG_KDP_CRED
-#define CHECK_ROOT_UID(x) (x->cred->uid.val == 0 || x->cred->gid.val == 0 || \
-			x->cred->euid.val == 0 || x->cred->egid.val == 0 || \
-			x->cred->suid.val == 0 || x->cred->sgid.val == 0)
-static int rkp_restrict_fork(struct filename *path)
-{
-	struct cred *shellcred;
-
-	if (!strcmp(path->name, "/system/bin/patchoat") ||
-	    !strcmp(path->name, "/system/bin/idmap2")) {
-		return 0 ;
-	}
-	/* If the Process is from Linux on Dex, 
-	then no need to reduce privilege */
-#ifdef CONFIG_LOD_SEC
-	if (rkp_is_lod(current)) {
-		return 0;
-	}
-#endif
-	if(rkp_is_nonroot(current)){
-		shellcred = prepare_creds();
-		if (!shellcred) {
-			return 1;
-		}
-		shellcred->uid.val = 2000;
-		shellcred->gid.val = 2000;
-		shellcred->euid.val = 2000;
-		shellcred->egid.val = 2000;
-
-		commit_creds(shellcred);
-	}
-	return 0;
-}
-#endif
 
 static int exec_binprm(struct linux_binprm *bprm)
 {
@@ -1888,8 +1714,6 @@ static int exec_binprm(struct linux_binprm *bprm)
 		trace_sched_process_exec(current, old_pid, bprm);
 		ptrace_event(PTRACE_EVENT_EXEC, old_vpid);
 		proc_exec_connector(current);
-	} else {
-		task_integrity_delayed_reset(current, CAUSE_EXEC, bprm->file);
 	}
 
 	return ret;
@@ -1949,15 +1773,6 @@ static int __do_execve_file(int fd, struct filename *filename,
 	if (IS_ERR(file))
 		goto out_unmark;
 
-#ifdef CONFIG_SECURITY_DEFEX
-	retval = task_defex_enforce(current, file, -__NR_execve);
-	if (retval < 0) {
-		bprm->file = file;
-		retval = -EPERM;
-		goto out_unmark;
-	 }
-#endif
-
 	sched_exec();
 
 	bprm->file = file;
@@ -1991,6 +1806,9 @@ static int __do_execve_file(int fd, struct filename *filename,
 		goto out_unmark;
 
 	bprm->argc = count(argv, MAX_ARG_STRINGS);
+	if (bprm->argc == 0)
+		pr_warn_once("process '%s' launched '%s' with NULL argv: empty string added\n",
+			     current->comm, bprm->filename);
 	if ((retval = bprm->argc) < 0)
 		goto out;
 
@@ -2015,7 +1833,19 @@ static int __do_execve_file(int fd, struct filename *filename,
 	if (retval < 0)
 		goto out;
 
-	would_dump(bprm, bprm->file);
+	/*
+	 * When argv is empty, add an empty string ("") as argv[0] to
+	 * ensure confused userspace programs that start processing
+	 * from argv[1] won't end up walking envp. See also
+	 * bprm_stack_limits().
+	 */
+	if (bprm->argc == 0) {
+		const char *argv[] = { "", NULL };
+		retval = copy_strings_kernel(1, argv, bprm);
+		if (retval < 0)
+			goto out;
+		bprm->argc = 1;
+	}
 
 	retval = exec_binprm(bprm);
 	if (retval < 0)
@@ -2162,29 +1992,6 @@ SYSCALL_DEFINE3(execve,
 		const char __user *const __user *, argv,
 		const char __user *const __user *, envp)
 {
-#ifdef CONFIG_KDP_CRED
-	struct filename *path = getname(filename);
-	int error = PTR_ERR(path);
-
-	if(IS_ERR(path))
-		return error;
-
-	if(rkp_cred_enable){
-		uh_call(UH_APP_RKP, RKP_KDP_X4B, (u64)path->name, 0, 0, 0);
-	}
-
-	if(CHECK_ROOT_UID(current) && rkp_cred_enable) {
-		if(rkp_restrict_fork(path)){
-			pr_warn("RKP_KDP Restricted making process. PID = %d(%s) "
-							"PPID = %d(%s)\n",
-			current->pid, current->comm,
-			current->parent->pid, current->parent->comm);
-			putname(path);
-			return -EACCES;
-		}
-	}
-	putname(path);
-#endif
 	return do_execve(getname(filename), argv, envp);
 }
 

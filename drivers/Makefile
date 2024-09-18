@@ -224,22 +224,13 @@ obj-$(CONFIG_ICD)		+= security/samsung/icdrv/
 # uH
 obj-$(CONFIG_UH)        += uh/
 
-# OLOG
-obj-y				+= kperfmon/
-
 # streamline
 ifeq ($(CONFIG_GATOR), y)
 	obj-$(CONFIG_GATOR)				+= gator/
 endif
-ifeq ($(CONFIG_PERF_MGR), y)
-	obj-$(CONFIG_PERF_MGR)	+= perf_mgr/
-endif
 
 #TZIC
 obj-$(CONFIG_TZIC)  += security/samsung/tzic/
-
-# KUnit
-obj-y				+= kunit/
 
 # GNSS
 obj-$(CONFIG_GPS_BCM4753)	+= gps/

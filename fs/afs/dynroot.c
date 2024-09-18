@@ -172,20 +172,9 @@ static int afs_dynroot_d_revalidate(struct dentry *dentry, unsigned int flags)
 	return 1;
 }
 
-/*
- * Allow the VFS to enquire as to whether a dentry should be unhashed (mustn't
- * sleep)
- * - called from dput() when d_count is going to 0.
- * - return 1 to request dentry be unhashed, 0 otherwise
- */
-static int afs_dynroot_d_delete(const struct dentry *dentry)
-{
-	return d_really_is_positive(dentry);
-}
-
 const struct dentry_operations afs_dynroot_dentry_operations = {
 	.d_revalidate	= afs_dynroot_d_revalidate,
-	.d_delete	= afs_dynroot_d_delete,
+	.d_delete	= always_delete_dentry,
 	.d_release	= afs_d_release,
 	.d_automount	= afs_d_automount,
 };
@@ -299,15 +288,17 @@ void afs_dynroot_depopulate(struct super_block *sb)
 		net->dynroot_sb = NULL;
 	mutex_unlock(&net->proc_cells_lock);
 
-	inode_lock(root->d_inode);
+	if (root) {
+		inode_lock(root->d_inode);
 
-	/* Remove all the pins for dirs created for manually added cells */
-	list_for_each_entry_safe(subdir, tmp, &root->d_subdirs, d_child) {
-		if (subdir->d_fsdata) {
-			subdir->d_fsdata = NULL;
-			dput(subdir);
+		/* Remove all the pins for dirs created for manually added cells */
+		list_for_each_entry_safe(subdir, tmp, &root->d_subdirs, d_child) {
+			if (subdir->d_fsdata) {
+				subdir->d_fsdata = NULL;
+				dput(subdir);
+			}
 		}
-	}
 
-	inode_unlock(root->d_inode);
+		inode_unlock(root->d_inode);
+	}
 }

@@ -201,6 +201,8 @@ source "drivers/thunderbolt/Kconfig"
 
 source "drivers/android/Kconfig"
 
+source "drivers/gpu/trace/Kconfig"
+
 source "drivers/nvdimm/Kconfig"
 
 source "drivers/dax/Kconfig"
@@ -261,13 +263,7 @@ source "drivers/security/samsung/icdrv/Kconfig"
 
 source "drivers/gator/Kconfig"
 
-source "drivers/perf_mgr/Kconfig"
-
-source "drivers/kperfmon/Kconfig"
-
 source "drivers/security/samsung/tzic/Kconfig"
-
-source "drivers/kunit/Kconfig"
 
 source "drivers/spu_verify/Kconfig"
 endmenu
