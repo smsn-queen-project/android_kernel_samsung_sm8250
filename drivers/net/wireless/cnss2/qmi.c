@@ -509,7 +509,7 @@ out:
 	return ret;
 }
 
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 #ifdef CONFIG_SEC_SEPARATE_BDFILE
 static unsigned int system_rev __read_mostly;
 static int __init sec_hw_rev_setup(char *p)
@@ -540,7 +540,7 @@ static int cnss_get_bdf_file_name(struct cnss_plat_data *plat_priv,
 
 	switch (bdf_type) {
 	case CNSS_BDF_ELF:
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 		if (plat_priv->board_info.board_id == 0xFF)
 			if (ant_from_macloader == 1 || ant_from_macloader == 2) {
 				snprintf(filename_tmp, filename_len, ELF_BDF_FILE_NAME "%d",
@@ -670,7 +670,7 @@ int cnss_wlfw_bdf_dnld_send_sync(struct cnss_plat_data *plat_priv,
 				     filename, sizeof(filename));
 	if (ret > 0) {
 		temp = DUMMY_BDF_FILE_NAME;
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 		remaining = MAX_FIRMWARE_NAME_LEN;
 #else
 		remaining = strlen(DUMMY_BDF_FILE_NAME) + 1;
@@ -1909,7 +1909,7 @@ static void cnss_wlfw_request_mem_ind_cb(struct qmi_handle *qmi_wlfw,
 			    ind_msg->mem_seg[i].size, ind_msg->mem_seg[i].type);
 		plat_priv->fw_mem[i].type = ind_msg->mem_seg[i].type;
 		plat_priv->fw_mem[i].size = ind_msg->mem_seg[i].size;
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 		if (!plat_priv->fw_mem[i].va &&
 		    plat_priv->fw_mem[i].type == CNSS_MEM_TYPE_DDR)
 #else

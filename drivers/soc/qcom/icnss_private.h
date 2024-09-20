@@ -390,7 +390,7 @@ struct icnss_priv {
 	bool chain_reg_info_updated;
 	unsigned long device_config;
 
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 	struct kobject *wifi_kobj;
 #endif
 };

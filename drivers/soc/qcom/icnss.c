@@ -35,7 +35,7 @@
 #include <linux/of_irq.h>
 #include <linux/soc/qcom/qmi.h>
 #include <linux/sysfs.h>
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #endif
@@ -159,7 +159,7 @@ static const char * const icnss_pdr_cause[] = {
 	[ICNSS_HOST_ERROR] = "Host error",
 };
 
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 char ver_info[512] = {0,};
 char softap_info[512] = {0,};
 #endif
@@ -2618,7 +2618,7 @@ int icnss_trigger_recovery(struct device *dev)
 	icnss_pr_warn("PD restart request completed, ret: %d state: 0x%lx\n",
 		      ret, priv->state);
 
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 	icnss_pr_err("%s\n", ver_info);
 #endif
 
@@ -3832,7 +3832,7 @@ static int icnss_smmu_dt_parse(struct icnss_priv *priv)
  * @DRIVER_MODULES_ENABLED: Driver CDS modules opened
  * @DRIVER_MODULES_CLOSED: Driver CDS modules closed
  */
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 enum driver_modules_status {
         DRIVER_MODULES_UNINITIALIZED,
         DRIVER_MODULES_ENABLED,
@@ -4127,7 +4127,7 @@ static int icnss_probe(struct platform_device *pdev)
 	icnss_debugfs_create(priv);
 
 	icnss_sysfs_create(priv);
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 	sec_create_wifi_sysfs(priv);
 #endif
 
@@ -4163,7 +4163,7 @@ static int icnss_remove(struct platform_device *pdev)
 	icnss_unregister_power_supply_notifier(penv);
 
 	icnss_debugfs_destroy(penv);
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 	sec_remove_wifi_sysfs(penv);
 #endif
 	icnss_sysfs_destroy(penv);

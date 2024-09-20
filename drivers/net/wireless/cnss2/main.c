@@ -11,7 +11,7 @@
 #include <linux/rwsem.h>
 #include <linux/suspend.h>
 #include <linux/timer.h>
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #endif
@@ -70,7 +70,7 @@ struct cnss_driver_event {
 	void *data;
 };
 
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 char ver_info[512] = {0,};
 char softap_info[512] = {0,};
 #endif
@@ -2510,7 +2510,7 @@ static void cnss_remove_sysfs_link(struct cnss_plat_data *plat_priv)
  * @DRIVER_MODULES_ENABLED: Driver CDS modules opened
  * @DRIVER_MODULES_CLOSED: Driver CDS modules closed
  */
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 enum driver_modules_status {
         DRIVER_MODULES_UNINITIALIZED,
         DRIVER_MODULES_ENABLED,
@@ -2744,7 +2744,7 @@ static int cnss_create_sysfs(struct cnss_plat_data *plat_priv)
 	}
 
 	cnss_create_sysfs_link(plat_priv);
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 	sec_create_wifi_sysfs(plat_priv);
 #endif
 	return 0;
@@ -2755,7 +2755,7 @@ out:
 static void cnss_remove_sysfs(struct cnss_plat_data *plat_priv)
 {
 	cnss_remove_sysfs_link(plat_priv);
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 	sec_remove_wifi_sysfs(plat_priv);
 #endif
 	devm_device_remove_group(&plat_priv->plat_dev->dev, &cnss_attr_group);

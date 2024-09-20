@@ -418,7 +418,7 @@ struct cnss_plat_data {
 	u8 use_nv_mac;
 	u8 set_wlaon_pwr_ctrl;
 
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 	struct kobject *wifi_kobj;
 #endif
 	u8 fw_pcie_gen_switch;

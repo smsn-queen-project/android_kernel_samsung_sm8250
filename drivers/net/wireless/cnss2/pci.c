@@ -4523,7 +4523,7 @@ void cnss_pci_clear_dump_info(struct cnss_pci_data *pci_priv)
 
 	for (i = 0, j = 0; i < plat_priv->fw_mem_seg_len; i++) {
 
-#if IS_ENABLED(CONFIG_SEC_CNSS2)
+#ifdef CONFIG_SEC_CNSS2
 		if (fw_mem[i].type == CNSS_MEM_TYPE_DDR &&
 		    (fw_mem[i].attrs & DMA_ATTR_FORCE_CONTIGUOUS)) {
 #else
