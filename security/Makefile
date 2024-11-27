@@ -33,6 +33,3 @@ obj-$(CONFIG_INTEGRITY)			+= integrity/
 
 # MST driver
 obj-$(CONFIG_MST_LDO)	  += mstdrv/
-
-# HDM driver
-obj-$(CONFIG_HDM)			+= hdm/
