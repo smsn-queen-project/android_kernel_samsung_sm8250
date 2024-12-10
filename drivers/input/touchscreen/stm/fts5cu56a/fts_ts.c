@@ -106,12 +106,18 @@ static ssize_t fts_secure_touch_enable_store(struct device *dev,
 static ssize_t fts_secure_touch_show(struct device *dev,
 		struct device_attribute *attr, char *buf);
 
+static ssize_t fts_fod_press_enabled_show(struct device *dev,
+		struct device_attribute *attr, char *buf);
+
 static struct device_attribute attrs[] = {
 	__ATTR(secure_touch_enable, (0664),
 			fts_secure_touch_enable_show,
 			fts_secure_touch_enable_store),
 	__ATTR(secure_touch, (0444),
 			fts_secure_touch_show,
+			NULL),
+	__ATTR(fod_press_enabled, (0444),
+			fts_fod_press_enabled_show,
 			NULL),
 };
 
@@ -285,6 +291,13 @@ static void fts_secure_touch_stop(struct fts_ts_info *info, int blocking)
 			wait_for_completion_interruptible(&info->st_powerdown);
 	}
 	mutex_unlock(&info->st_lock);
+}
+
+static ssize_t fts_fod_press_enabled_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fts_ts_info *info = dev_get_drvdata(dev);
+	return snprintf(buf, PAGE_SIZE, "%u\n", info->fod_press_enabled);
 }
 
 static irqreturn_t fts_filter_interrupt(struct fts_ts_info *info)
