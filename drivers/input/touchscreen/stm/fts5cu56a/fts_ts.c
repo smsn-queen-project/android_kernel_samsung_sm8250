@@ -4136,6 +4136,19 @@ int fts_set_lowpowermode(struct fts_ts_info *info, u8 mode)
 		goto out;
 	}
 
+    switch (mode) {
+	case TO_LOWPOWER_MODE:
+		info->press_prop = 0;
+		fts_set_press_property(info);
+        break;
+	case TO_TOUCH_MODE:
+		info->press_prop = 1;
+		fts_set_press_property(info);
+        break;
+    default:
+        break;
+    }
+
 	if (mode == TO_LOWPOWER_MODE) {
 		if (device_may_wakeup(&info->client->dev))
 			enable_irq_wake(info->irq);
