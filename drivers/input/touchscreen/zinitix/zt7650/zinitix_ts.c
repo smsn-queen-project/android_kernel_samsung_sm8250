@@ -803,6 +803,7 @@ struct zt_ts_info {
 	u16 fod_info_vi_data_len;
 	u16 fod_rect[4];
 	atomic_t fod_pressed;
+	atomic_t fod_press_enabled;
 
 	u16 aod_rect[4];
 	u16 aod_active_area[3];
@@ -1611,15 +1612,25 @@ static ssize_t zt_fod_pressed_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d", atomic_read(&info->fod_pressed));
 }
 
+static ssize_t zt_fod_press_enabled_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct zt_ts_info *info = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "%d", atomic_read(&info->fod_press_enabled));
+}
+
 static DEVICE_ATTR(secure_touch_enable, (S_IRUGO | S_IWUSR | S_IWGRP),
 		secure_touch_enable_show, secure_touch_enable_store);
 static DEVICE_ATTR(secure_touch, S_IRUGO, secure_touch_show, NULL);
 static DEVICE_ATTR(fod_pressed, S_IRUGO, zt_fod_pressed_show, NULL);
+static DEVICE_ATTR(fod_press_enabled, S_IRUGO, zt_fod_press_enabled_show, NULL);
 
 static struct attribute *secure_attr[] = {
 	&dev_attr_secure_touch_enable.attr,
 	&dev_attr_secure_touch.attr,
 	&dev_attr_fod_pressed.attr,
+	&dev_attr_fod_press_enabled.attr,
 	NULL,
 };
 
@@ -7252,6 +7263,15 @@ static void fod_enable(void *device_data)
 
 	info->fod_enable = !!sec->cmd_param[0];
 	info->fod_mode_set = (sec->cmd_param[1] & 0x01) | ((sec->cmd_param[2] & 0x01) << 1);
+		
+	if (sec->cmd_param[0]) {
+		atomic_set(&info->fod_press_enabled, 1);
+		sysfs_notify(&info->input_dev->dev.kobj, NULL, "fod_press_enabled");
+	}
+	else {
+		atomic_set(&info->fod_press_enabled, 0);
+		sysfs_notify(&info->input_dev->dev.kobj, NULL, "fod_press_enabled");
+	}
 
 	zt_set_lp_mode(info, ZT_SPONGE_MODE_PRESS, info->fod_enable);
 	ret = ts_write_to_sponge(info, ZT_SPONGE_FOD_PROPERTY, (u8 *)&info->fod_mode_set, 2);
