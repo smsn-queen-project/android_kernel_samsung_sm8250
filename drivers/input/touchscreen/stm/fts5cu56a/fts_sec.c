@@ -6855,7 +6855,9 @@ static void fod_enable(void *device_data)
 	else {
 		info->lowpower_flag &= ~FTS_MODE_PRESS;
 		info->fod_press_enabled = false;
+		info->fod_pressed = false;
 		sysfs_notify(&info->input_dev->dev.kobj, NULL, "fod_press_enabled");
+		sysfs_notify(&info->input_dev->dev.kobj, NULL, "fod_pressed");
 	}
 	info->press_prop = !!sec->cmd_param[1];
 
