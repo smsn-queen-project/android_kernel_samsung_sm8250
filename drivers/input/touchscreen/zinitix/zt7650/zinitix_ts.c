@@ -1435,10 +1435,24 @@ static void zt_set_lp_mode(struct zt_ts_info *info, int event, bool enable)
 
 	if (enable) {
 		zinitix_bit_set(info->lpm_mode, event);
+		if (atomic_read(&info->fod_press_enabled)) {
+			info->fod_mode_set = 0;
+			ret = ts_write_to_sponge(info, ZT_SPONGE_FOD_PROPERTY, (u8 *)&info->fod_mode_set, 2);
+			if (ret < 0)
+				input_err(true, &info->client->dev, "%s: Failed to write sponge\n", __func__);
+
+		}
 		atomic_set(&info->fod_pressed, 0);
 	}
 	else {
 		zinitix_bit_clr(info->lpm_mode, event);
+		if (atomic_read(&info->fod_press_enabled)) {
+			info->fod_mode_set = 1;
+			ret = ts_write_to_sponge(info, ZT_SPONGE_FOD_PROPERTY, (u8 *)&info->fod_mode_set, 2);
+			if (ret < 0)
+				input_err(true, &info->client->dev, "%s: Failed to write sponge\n", __func__);
+
+		}
     }
 
 	ret = ts_write_to_sponge(info, ZT_SPONGE_LP_FEATURE, &info->lpm_mode, 1);
