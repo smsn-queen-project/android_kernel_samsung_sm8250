@@ -4201,12 +4201,16 @@ int fts_set_lowpowermode(struct fts_ts_info *info, u8 mode)
     switch (mode) {
 	case TO_LOWPOWER_MODE:
 		info->fod_pressed = 0;
-		info->press_prop = 0;
-		fts_set_press_property(info);
+		if (info->fod_press_enabled) {
+			info->press_prop = 0;
+			fts_set_press_property(info);
+		}
         break;
 	case TO_TOUCH_MODE:
-		info->press_prop = 1;
-		fts_set_press_property(info);
+		if (info->fod_press_enabled) {
+			info->press_prop = 1;
+			fts_set_press_property(info);
+		}
         break;
     default:
         break;
