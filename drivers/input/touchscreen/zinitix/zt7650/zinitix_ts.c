@@ -7323,7 +7323,9 @@ static void fod_enable(void *device_data)
 	}
 	else {
 		atomic_set(&info->fod_press_enabled, 0);
+		atomic_set(&info->fod_pressed, 0);
 		sysfs_notify(&info->input_dev->dev.kobj, NULL, "fod_press_enabled");
+		sysfs_notify(&info->input_dev->dev.kobj, NULL, "fod_pressed");
 	}
 
 	zt_set_lp_mode(info, ZT_SPONGE_MODE_PRESS, info->fod_enable);
